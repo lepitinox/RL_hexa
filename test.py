@@ -16,7 +16,7 @@ def preprocess(observation):
     data = data[1::8, ::4]
     return data
 
-agent.load("tetris-dqn-8.h5")
+agent.load("tetris-dqn-1.h5")
 
 state = env.reset()
 state = preprocess(state)
@@ -26,4 +26,4 @@ agent.epsilon = 0
 for time_t in tqdm(range(10000)):
     action = agent.action(state)
     print(action)
-    observation = env.step(action)
+    observation = env.step(action[0])

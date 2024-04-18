@@ -1,16 +1,17 @@
-import gymnasium
 import matplotlib.pyplot as plt
+import matplotlib
+
+matplotlib.use('TkAgg')
 import numpy as np
 from deepq import DQNAgent
 import gymnasium
 from tqdm import tqdm
 
+# env = gymnasium.make("ALE/Tetris-v5", obs_type='grayscale', render_mode='rgb_array')
 env = gymnasium.make("ALE/Tetris-v5", obs_type='grayscale', render_mode='human')
-env.reset(seed=42069)
-env.render()
 
 image_crop = (24, 64, 27, 203)
-a = 0
+
 tetrominoes = {
     'I': np.array([[1, 1, 1, 1]]),
     'L': np.array([[1, 1, 1], [1, 0, 0]]),
@@ -19,6 +20,19 @@ tetrominoes = {
     'S': np.array([[0, 1, 1], [1, 1, 0]]),
     'T': np.array([[1, 1, 1], [0, 1, 0]]),
     'Z': np.array([[1, 1, 0], [0, 1, 1]])
+}
+
+tetrominoes_with_rotations = {
+    'I': [np.array([[1, 1, 1, 1]]), np.array([[1], [1], [1], [1]])],
+    'L': [np.array([[1, 1, 1], [1, 0, 0]]), np.array([[1, 0], [1, 0], [1, 1]]),
+          np.array([[0, 0, 1], [1, 1, 1]]), np.array([[1, 1], [0, 1], [0, 1]])],
+    'J': [np.array([[1, 1, 1], [0, 0, 1]]), np.array([[1, 0], [1, 0], [1, 1]]),
+          np.array([[1, 1, 1], [1, 0, 0]]), np.array([[1, 1], [0, 1], [0, 1]])],
+    'O': [np.array([[1, 1], [1, 1]])],
+    'S': [np.array([[0, 1, 1], [1, 1, 0]]), np.array([[1, 0], [1, 1], [0, 1]])],
+    'T': [np.array([[1, 1, 1], [0, 1, 0]]), np.array([[1, 0], [1, 1], [1, 0]]),
+          np.array([[0, 1], [1, 1], [0, 1]]), np.array([[0, 1, 0], [1, 1, 1]])],
+    'Z': [np.array([[1, 1, 0], [0, 1, 1]]), np.array([[0, 1], [1, 1], [1, 0]])]
 }
 
 tetrominoes_spawn_positions = {
@@ -30,14 +44,6 @@ tetrominoes_spawn_positions = {
     "T": 3,
     "Z": 3
 }
-
-
-def get_spawn_position(piece):
-    data = np.zeros((2, 10))
-    for en, line in enumerate(tetrominoes[piece]):
-        data[en, tetrominoes_spawn_positions[piece]:tetrominoes_spawn_positions[piece] + len(line)] = line
-    return data
-
 
 agent = DQNAgent()
 
@@ -53,34 +59,114 @@ def preprocess(observation):
     return data
 
 
-def is_new_piece_frame(data):
-    # Check if the piece is in the top 2 rows
-    # use the get_spawn_position function to check if the piece is in the top 2 rows
-    for piece in tetrominoes:
-        if np.array_equal(data[:2], get_spawn_position(piece)):
-            return True
-    return False
+def new_piece_in_top_layers(data):
+    for offset in range(-3, 5):
+        for piece in tetrominoes:
+            if piece == "I":
+                if offset == 4:
+                    continue
+            for rotation in tetrominoes_with_rotations[piece]:
+                new_data = np.zeros((4, 10))
+                for en, line in enumerate(rotation):
+                    new_data[en, (tetrominoes_spawn_positions[piece] + offset):(
+                                tetrominoes_spawn_positions[piece] + len(line) + offset)] = line
+                    if np.array_equal(data[:4], new_data):
+                        return True, piece
+    return False, None
 
 
+# plt.ion()  # Turn on interactive mode
+# fig, ax = plt.subplots()
+# fig2, ax2 = plt.subplots()
+# fig3, ax3 = plt.subplots()
+datas = []
 done = False
+b = 0
+
+
+def is_average_heigh_lower(data, last_data):
+    """
+    Check if the average height of the board is lower than the last data
+     ponderate the sum of row by the height of the row
+    :param data:
+    :param last_data:
+    :return:
+    """
+    if np.sum(data) == 0:
+        return 0
+    last_data = np.reshape(last_data, [22, 10]) * np.reshape(np.arange(1, 23), (22, 1))
+    data = data * np.reshape(np.arange(1, 23), (22, 1))
+    if np.sum(data) < np.sum(last_data):
+        return 1
+    return 0
+
+
+def get_reward_from_mean_height(data, before_run_state):
+    """
+    Get the reward from the mean height of the board and compare it to the last state
+    """
+    for i in range(22):
+        if np.sum(data[i]) == 0:
+
+
+
 for e in range(EPISODES):
+    env.reset()
+    env.render()
     print("Episode ", e)
     # Reset the env to start a new game
-    state = np.zeros((22, 10, 1))
+    state = np.zeros((1, 22, 10, 1))
     agent.memory.clear()
+    a = 0
+    before_run_state = np.zeros((22, 10))
     for time_t in tqdm(range(10000)):
         action = agent.action(state)
-        observation = env.step(action)
+        # if action[1]:
+        #     datas.extend([action[0]])
+        #     ax.clear()
+        #     ax.hist(datas, bins=np.arange(0, 5) - 0.5, edgecolor='black')
+        #     ax.set_title('Updating Histogram')
+        #     ax.set_xlabel('Value')
+        #     ax.set_ylabel('Frequency')
+        #     ax.set_xticks(range(0, 4))
+        #     plt.draw()
+        #
+        # # plotting loss and accuracy
+        # ax2.clear()
+        # ax2.plot(agent.truc["loss"], label="loss")
+        # ax2.set_title('Loss')
+        # ax2.set_xlabel('Epoch')
+        # ax2.set_ylabel('Loss')
+        # plt.draw()
+        #
+        # ax3.clear()
+        # ax3.plot(agent.truc["accuracy"], label="accuracy")
+        # ax3.set_title('Accuracy')
+        # ax3.set_xlabel('Epoch')
+        # ax3.set_ylabel('Accuracy')
+        # plt.draw()
+        # plt.pause(0.1)
+        a += 1
+        observation = env.step(0)
         data = preprocess(observation)
+
         reward = observation[1]
+        new_piece, piece = new_piece_in_top_layers(data)
+        if new_piece:
+            last_detection = time_t
+            if time_t - last_detection < 10:
+                pass
+            else:
+                curent_piece = piece
+                added_reward = get_reward_from_mean_height(data, before_run_state)
+                before_run_state = np.reshape(state.copy(), [22, 10])
+
         data = np.reshape(data, [1, *(22, 10, 1)])
         done = observation[2]
-        plt.imshow(data[0, :, :, 0])
-        plt.show()
         if observation[3]:
             print("Game over")
             break
-        agent.remember(state, action, reward, data, done)
+        agent.remember(state, action[0], reward, data, done)
         state = data
         if done:  # game over
             print("Game Episode :{}/{} High Score :{} Exploration Rate:{:.2}".format(
@@ -88,8 +174,5 @@ for e in range(EPISODES):
             # agent.replay(len(agent.memory))
             # agent.memory.clear()
             break
-
-        if len(agent.memory) > BATCH_SIZE:
-            agent.replay(BATCH_SIZE)
-
     agent.save(f"tetris-dqn-{e}.h5")
+plt.show()

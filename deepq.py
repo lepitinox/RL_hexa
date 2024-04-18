@@ -1,17 +1,17 @@
 import numpy as np
 import random
 from collections import deque
+import tensorflow as tf
 from keras.models import Sequential
 from keras.layers import Dense, Conv2D, Flatten, BatchNormalization, Dropout
 from keras.optimizers import Adam
-from keras.optimizers import RMSprop
-from keras.src.layers.pooling.base_pooling2d import Pooling2D
 from tqdm import tqdm
 
 # Parameters
-ACTIONS = [0, 1, 2, 3, 4]
+ACTIONS = [0, 1, 2, 3]
 STATE_SIZE = (22, 10, 1)  # grayscale image size
 ACTION_SIZE = len(ACTIONS)
+BATCH_SIZE = 32
 
 
 class DQNAgent:
@@ -21,47 +21,30 @@ class DQNAgent:
         self.epsilon = 1.0  # initial exploration rate
         self.epsilon_min = 0.01
         self.epsilon_decay = 0.9995
-        self.learning_rate = 0.001
+        self.learning_rate = 0.0001
         self.model = self.build_model()
+        self.truc = {"loss": [], "accuracy": []}
 
     def build_model(self):
         # Neural Networks for Deep Q Learning
 
         model = Sequential()
 
-        # start of network
-        model.add(Conv2D(32, kernel_size=(3, 3), padding='same', activation='relu', input_shape=STATE_SIZE))
-        model.add(BatchNormalization())
-        model.add(Conv2D(32, kernel_size=(3, 3), padding='same', activation='relu'))
-        model.add(BatchNormalization())
-        model.add(Conv2D(64, kernel_size=(3, 3), padding='same', activation='relu'))
-        model.add(BatchNormalization())
-
-        # layer that collapses each column into a single pixel with 64 feature channels
-        model.add(Conv2D(64, kernel_size=(1, STATE_SIZE[1]), activation='relu'))
-        model.add(BatchNormalization())
-
-        # continue network
-        model.add(Conv2D(128, kernel_size=(3, 3), padding='same', activation='relu'))
-        model.add(BatchNormalization())
-        model.add(Conv2D(128, kernel_size=(1, 1), padding='same', activation='relu'))
-        model.add(BatchNormalization())
-        model.add(Conv2D(128, kernel_size=(3, 3), padding='same', activation='relu'))
-        model.add(BatchNormalization())
-        model.add(Flatten())
-
-        # Fully-connected layers
-        model.add(Dense(128, activation='relu'))
+        model.add(Flatten(input_shape=STATE_SIZE))
+        model.add(Dense(1024, activation='relu'))
         model.add(BatchNormalization())
         model.add(Dropout(0.75))
         model.add(Dense(512, activation='relu'))
         model.add(BatchNormalization())
         model.add(Dropout(0.75))
-
+        model.add(Dense(256, activation='relu'))
+        model.add(BatchNormalization())
+        model.add(Dense(128, activation='relu'))
+        model.add(BatchNormalization())
         # Output layer depending on the required output dimensions
-        model.add(Dense(ACTION_SIZE, activation='softmax'))  # FC-13
+        model.add(Dense(ACTION_SIZE, activation='softmax'))
 
-        opt = Adam()
+        opt = Adam(learning_rate=self.learning_rate)
         model.compile(loss='categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
         return model
 
@@ -71,29 +54,33 @@ class DQNAgent:
     def action(self, state):
         # Exploration-exploitation trade-off
         if np.random.rand() <= self.epsilon:
-            return random.randrange(ACTION_SIZE)
+            return random.randrange(ACTION_SIZE), False
         act_values = self.model.predict(state, verbose=0)
-        return np.argmax(act_values[0])
+        return np.argmax(act_values[0]), True
 
     def replay(self, batch_size):
         minibatch = random.sample(self.memory, batch_size)
 
         # Get all states from minibatch
         update_input = np.array([transition[0][0] for transition in minibatch])
-        update_target = self.model.predict(update_input, verbose=0, use_multiprocessing=True, workers=4)
+        update_target = self.model.predict(update_input, verbose=0, use_multiprocessing=True, workers=8)
 
         # Get all next states from minibatch
         update_input_next_state = np.array([transition[3][0] for transition in minibatch])
-        target_val = self.model.predict(update_input_next_state, verbose=0, use_multiprocessing=True, workers=4)
+        target_val = self.model.predict(update_input_next_state, verbose=0, use_multiprocessing=True, workers=8)
 
         for i, (state, action, reward, next_state, done) in enumerate(minibatch):
-            true_q = reward if done else (reward + self.gamma * np.amax(target_val[i]))
+            if done:
+                true_q = reward
+            else:
+                true_q = (reward + self.gamma * np.amax(target_val[i]))
             update_target[i][action] = true_q
 
-        self.model.fit(update_input, update_target, batch_size=batch_size, verbose=0, shuffle=False)
+        ok = self.model.fit(update_input, update_target, batch_size=batch_size, verbose=0, shuffle=False)
+        self.truc['loss'].append(ok.history['loss'][0])
+        self.truc['accuracy'].append(ok.history['accuracy'][0])
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
-        self.memory.clear()
 
     def old_replay(self, batch_size):
         minibatch = random.sample(self.memory, batch_size)
